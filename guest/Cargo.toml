@@ -1,0 +1,8 @@
+[package]
+name = "chick-guest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hyperlight-guest = "0.1"
+hyperlight-common = { version = "0.1", default-features = false }
