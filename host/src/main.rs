@@ -4,7 +4,7 @@ use hyperlight_host::{UninitializedSandbox, MultiUseSandbox, sandbox_state::tran
 fn main() -> hyperlight_host::Result<()> {
     // Create an uninitialized sandbox with a guest binary
     let uninitialized_sandbox = UninitializedSandbox::new(
-        hyperlight_host::GuestBinary::FilePath("/tmp/chick-guest".to_string()),
+        hyperlight_host::GuestBinary::FilePath("/usr/local/bin/chick-guest".to_string()),
         None, // default configuration
         None, // default run options
         None, // default host print function
