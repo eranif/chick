@@ -1,4 +1,4 @@
-use hyperlight_common::flatbuffer_wrappers::function_types::{ParameterValue, ReturnType};
+use hyperlight_common::flatbuffer_wrappers::function_types::{ParameterValue, ReturnType, ReturnValue};
 use hyperlight_host::{UninitializedSandbox, MultiUseSandbox, sandbox_state::transition::Noop, sandbox_state::sandbox::EvolvableSandbox};
 
 fn main() -> hyperlight_host::Result<()> {
@@ -18,12 +18,22 @@ fn main() -> hyperlight_host::Result<()> {
     // in order to call a function it first must be defined in the guest and exposed so that 
     // the host can call it
     let result = multi_use_sandbox.call_guest_function_by_name(
-        "PrintOutput",
-        ReturnType::Int,
+        "Echo",
+        ReturnType::String,
         Some(vec![ParameterValue::String(message.clone())]),
     );
 
-    assert!(result.is_ok());
+    match result {
+        Ok(result) => {
+            match result {
+                ReturnValue::String(value) => {
+                    println!("Guest returned: {}", value);
+                },
+                _ => panic!("Unexpected return value from guest function"),
+            }
+        }
+        Err(e) => panic!("Error calling guest function: {:?}", e),
+    }
 
     Ok(())
 }
