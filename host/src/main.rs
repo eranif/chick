@@ -1,27 +1,23 @@
-use axum::{
-    routing::post,
-    Router,
-    Json,
-};
-use hyperlight_common::flatbuffer_wrappers::function_types::{ParameterValue, ReturnType, ReturnValue};
-use hyperlight_host::{UninitializedSandbox, MultiUseSandbox, sandbox_state::transition::Noop, sandbox_state::sandbox::EvolvableSandbox};
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::sync::Arc;
 
-#[derive(Deserialize)]
-struct EchoRequest {
-    message: String,
-}
+mod handlers;
+mod models;
+mod services;
+mod utils;
 
-#[derive(Serialize)]
-struct EchoResponse {
-    result: String,
-}
+use crate::handlers::inspect::inspect_handler;
+use crate::models::state::AppState;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {    
-    let app = Router::new()
-        .route("/echo", post(echo_handler));
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = oci_client::client::ClientConfig::default();
+    let oci_client = Arc::new(oci_client::Client::new(config));
+    let app_state = Arc::new(AppState { oci_client });
+
+    let app = axum::Router::new()
+        .route("/inspect", axum::routing::post(inspect_handler))
+        .with_state(app_state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     println!("Listening on {}", addr);
@@ -30,39 +26,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     Ok(())
-}
-
-async fn echo_handler(
-    Json(payload): Json<EchoRequest>,
-) -> Json<EchoResponse> {
-    let uninitialized_sandbox = UninitializedSandbox::new(
-        hyperlight_host::GuestBinary::FilePath("/usr/local/bin/chick-guest".to_string()),
-        None,
-        None,
-        None,
-    ).expect("Failed to create uninitialized sandbox");
-
-    let mut multi_use_sandbox: MultiUseSandbox = uninitialized_sandbox.evolve(Noop::default()).expect("Failed to evolve sandbox");
-    
-    let result = multi_use_sandbox.call_guest_function_by_name(
-        "Echo",
-        ReturnType::String,
-        Some(vec![ParameterValue::String(payload.message)]),
-    );
-
-    match result {
-        Ok(ReturnValue::String(value)) => {
-            Json(EchoResponse { result: value })
-        },
-        Ok(_) => {
-            Json(EchoResponse { 
-                result: "Unexpected return value type from guest function".to_string() 
-            })
-        },
-        Err(e) => {
-            Json(EchoResponse { 
-                result: format!("Error calling guest function: {:?}", e)
-            })
-        }
-    }
 }
