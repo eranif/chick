@@ -2,6 +2,10 @@
 #![no_main]
 extern crate alloc;
 
+mod errors;
+
+use errors::ChickError;
+
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use hyperlight_common::flatbuffer_wrappers::function_call::FunctionCall;
@@ -63,7 +67,7 @@ struct DpkgRecord {
     pub version: String,
 }
 
-fn read_package<'a>(reader: &mut LineReader) -> Result<Option<DpkgRecord>> {
+fn read_package<'a>(reader: &mut LineReader) -> Result<Option<DpkgRecord>, ChickError> {
     let mut package = DpkgRecord::default();
 
     let mut line = reader.next();
@@ -94,25 +98,28 @@ fn read_package<'a>(reader: &mut LineReader) -> Result<Option<DpkgRecord>> {
     Ok(Some(package))
 }
 
-fn inspect(function_call: &FunctionCall) -> Result<Vec<u8>> {
-    if let ParameterValue::VecBytes(value) = function_call.parameters.clone().unwrap()[0].clone() {
+fn inspect(function_call: &FunctionCall) -> Result<Vec<u8>, ChickError> {
+    let Some(params) = &function_call.parameters else {
+        return Err(ChickError::InvalidArguments(
+            "Invalid parameters passed to inspect".into(),
+        ));
+    };
+
+    if let Some(ParameterValue::VecBytes(value)) = params.first() {
         let mut packages: Vec<DpkgRecord> = Vec::new();
 
-        let mut reader = LineReader::new(&value.as_slice());
+        let mut reader = LineReader::new(value.as_slice());
         while let Some(package) = read_package(&mut reader)? {
             packages.push(package);
         }
-        // while let Some(package) = read_package(&mut reader)? {
-        //     packages.push(package);
-        // }
 
-        let res = serde_json::to_string(&packages).unwrap();
+        let res = serde_json::to_string(&packages)
+            .map_err(|e| ChickError::SerializationError(e.to_string()))?;
         Ok(get_flatbuffer_result_from_string(&res))
     } else {
-        Err(HyperlightGuestError::new(
-            ErrorCode::GuestFunctionParameterTypeMismatch,
-            "Invalid parameters passed to inspect".to_string(),
-        ))
+        return Err(ChickError::InvalidArguments(
+            "Invalid parameters passed to inspect".into(),
+        ));
     }
 }
 
@@ -128,7 +135,7 @@ pub extern "C" fn hyperlight_main() {
 }
 
 #[no_mangle]
-pub fn guest_dispatch_function(function_call: FunctionCall) -> Result<Vec<u8>> {
+pub fn guest_dispatch_function(function_call: FunctionCall) -> Result<Vec<u8>, ChickError> {
     let function_name = function_call.function_name.clone();
     return Err(HyperlightGuestError::new(
         ErrorCode::GuestFunctionNotFound,
