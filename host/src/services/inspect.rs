@@ -1,11 +1,12 @@
 use crate::models::package::DpkgRecord;
 use crate::models::requests::Layer;
-use crate::utils::errors::ImagePullError;
-use crate::utils::line_reader::LineReader;
+use crate::utils::errors::{ImagePullError, HyperlightGuestError};
 use flate2::read::GzDecoder;
 use oci_client::{Client, Reference, secrets::RegistryAuth};
-use std::io::Read;
+use hyperlight_common::flatbuffer_wrappers::function_types::{ParameterValue, ReturnType, ReturnValue};
+use hyperlight_host::{UninitializedSandbox, MultiUseSandbox, sandbox_state::transition::Noop, sandbox_state::sandbox::EvolvableSandbox};
 use tar::Archive;
+use std::io::Read;
 
 pub async fn pull_and_inspect_image(
     oci_client: &Client,
@@ -67,50 +68,50 @@ fn inspect_layer(
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?;
+        let mut sandbox_cfg = hyperlight_host::sandbox::SandboxConfiguration::default();
+        sandbox_cfg.set_input_data_size(33554432);
+        sandbox_cfg.set_host_exception_size(33554432);
+        sandbox_cfg.set_host_function_definition_size(33554432);
+        sandbox_cfg.set_guest_error_buffer_size(33554432);
+        sandbox_cfg.set_guest_panic_context_buffer_size(33554432);
+        sandbox_cfg.set_heap_size(33554432);
+        sandbox_cfg.set_output_data_size(33554432);
+                                      
         if path.to_string_lossy() == target_path {
             let mut buffer = Vec::new();
             entry.read_to_end(&mut buffer)?;
 
-            let mut reader = LineReader::new(buffer.as_slice());
-            while let Some(package) = read_package(&mut reader)? {
-                packages.push(package);
+            let uninitialized_sandbox = UninitializedSandbox::new(
+                hyperlight_host::GuestBinary::FilePath("/usr/local/bin/chick-guest".to_string()),
+                Some(sandbox_cfg),
+                None,
+                None,
+            ).expect("Failed to create uninitialized sandbox");
+        
+            let mut multi_use_sandbox: MultiUseSandbox = uninitialized_sandbox.evolve(Noop::default()).expect("Failed to evolve sandbox");
+            
+            let result = multi_use_sandbox.call_guest_function_by_name(
+                "Inspect",
+                ReturnType::VecBytes,
+                Some(vec![ParameterValue::VecBytes(buffer)]),
+            );
+        
+            match result {
+                Ok(ReturnValue::String(result)) => {
+                    packages = serde_json::from_str(&result).unwrap();
+                },
+                Ok(_) => {
+                    return Err(Box::new(HyperlightGuestError{
+                        message: format!("Invalid return type from inspect")
+                    }
+                    ))
+                },
+                Err(e) => {
+                    return Err(Box::new(e))
+                }
             }
         }
     }
 
     Ok(packages)
-}
-
-fn read_package(
-    reader: &mut LineReader,
-) -> Result<Option<DpkgRecord>, Box<dyn std::error::Error>> {
-    let mut package = DpkgRecord::default();
-
-    let mut line = reader.next();
-    if line.is_none() {
-        return Ok(None);
-    }
-
-    loop {
-        if let Some(line_str) = line {
-            if line_str.is_empty() {
-                break;
-            }
-            let (key, value) = line_str.split_once(':').unwrap_or(("", ""));
-            match key {
-                "Package" => package.package = value.trim().to_string(),
-                "Status" => package.status = value.trim().to_string(),
-                "Version" => package.version = value.trim().to_string(),
-                _ => {}
-            }
-        }
-        
-        line = reader.next();
-        if line.is_none() {
-            break;
-        }
-    }
-    
-    println!("Package: {}", package.package);
-    Ok(Some(package))
 }

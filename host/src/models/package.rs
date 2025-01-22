@@ -1,6 +1,6 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Default, Debug, Hash, Serialize)]
+#[derive(Default, Debug, Hash, Serialize, Deserialize)]
 pub struct DpkgRecord {
     pub package: String,
     pub status: String,

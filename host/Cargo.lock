@@ -232,6 +232,7 @@ dependencies = [
  "hyperlight-host",
  "oci-client",
  "serde",
+ "serde_json",
  "tar",
  "tokio",
 ]
